@@ -14,10 +14,12 @@ log() { printf '[kanpachi] %s\n' "$*" >&2; }
 # There is no default registry: without a seed the daemon cannot open a room at
 # all, so fail here rather than three commands later.
 : "${KANPACHI_SEED:?KANPACHI_SEED is required — kanpachi has no default registry}"
+# Matches the consuming Zomboid manifest's default room name.
 ROOM_NAME="${ROOM_NAME:-Merwebo Zomboid}"
 GAME_ID="${GAME_ID:-project-zomboid}"
 GAME_PORTS="${GAME_PORTS:-16261 16262}"
 SHARED_DIR="${SHARED_DIR:-/shared}"
+RELAY_PIDS=()
 
 # Overridable only so the control flow can be exercised unprivileged, off the
 # real paths. In the pod these are always the defaults.
@@ -49,6 +51,9 @@ DAEMON=$!
 # below worth having.
 shutdown() {
   log "stopping; the room stays saved so it reopens with the same code"
+  for pid in "${RELAY_PIDS[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
   kill -TERM "$DAEMON" 2>/dev/null || true
 }
 trap shutdown TERM INT
@@ -153,6 +158,7 @@ for PORT in $GAME_PORTS; do
   log "relaying udp/$PORT from $ROOM_IP to $POD_IP"
   socat "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
         "UDP4-SENDTO:$POD_IP:$PORT" &
+  RELAY_PIDS+=("$!")
 done
 
 # The trap interrupts this wait, so wait again for the daemon to actually finish
