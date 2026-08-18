@@ -156,9 +156,21 @@ kanpachi link | tee "$SHARED_DIR/invite-link.txt"
 # `fork` gives each source address its own forwarding session.
 for PORT in $GAME_PORTS; do
   log "relaying udp/$PORT from $ROOM_IP to $POD_IP"
-  setsid socat "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
-               "UDP4-SENDTO:$POD_IP:$PORT" &
-  RELAY_PIDS+=("$!")
+  relay_pidfile="$RUN_DIR/relay-$PORT.pid"
+  rm -f "$relay_pidfile"
+  setsid sh -c '
+    echo "$$" > "$1"
+    exec socat "$2" "$3"
+  ' sh "$relay_pidfile" \
+    "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
+    "UDP4-SENDTO:$POD_IP:$PORT" &
+  for _ in $(seq 1 10); do
+    [ -s "$relay_pidfile" ] && break
+    sleep 0.1
+  done
+  [ -s "$relay_pidfile" ] || { log "failed to record relay pid for udp/$PORT"; exit 1; }
+  RELAY_PIDS+=("$(cat "$relay_pidfile")")
+  rm -f "$relay_pidfile"
 done
 
 # The trap interrupts this wait, so wait again for the daemon to actually finish
@@ -173,5 +185,17 @@ if kill -0 "$DAEMON" 2>/dev/null; then
   kill -KILL "$DAEMON" 2>/dev/null || true
   wait "$DAEMON" 2>/dev/null || true
 fi
-wait "${RELAY_PIDS[@]}" 2>/dev/null || true
+for pid in "${RELAY_PIDS[@]}"; do
+  kill -TERM -- "-$pid" 2>/dev/null || true
+done
+for pid in "${RELAY_PIDS[@]}"; do
+  for _ in $(seq 1 5); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    log "relay group $pid did not stop within 5s; killing it"
+    kill -KILL -- "-$pid" 2>/dev/null || true
+  fi
+done
 log "the daemon is down"
