@@ -3,8 +3,43 @@
 # out to `systemctl is-active kanpachid` to decide whether the daemon is up
 # (daemon/cmd/kanpachi/doctor_linux.go), so answer on systemd's behalf.
 # `kanpachi doctor`'s "the service" check reads as healthy off the back of this.
-case "${1:-}" in
-  is-active)  echo active;  exit 0 ;;
-  is-enabled) echo enabled; exit 0 ;;
-  *)          echo unknown; exit 3 ;;
+#
+# Answer for that unit ONLY. Saying "active" to everything also claims ufw and
+# firewalld are running: blockingManagers() in
+# daemon/adapter/firewall/linux/nftpermits/foreign_linux.go probes
+# `systemctl is-active --quiet ufw.service` and `firewalld.service` to find a
+# manager that might be blocking the game port, and a yes there sends
+# `kanpachi host` into the foreign-firewall path, which dies on
+# "firewall-cmd is not in the PATH". Neither manager is installed here, so
+# inactive is not a workaround -- it is the true answer.
+verb="${1:-}"
+shift 2>/dev/null || true
+
+# Callers pass both `is-active <unit>` and `is-active --quiet <unit>`, so the
+# unit is the first argument that is not a flag.
+unit=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+     *) unit="$arg"; break ;;
+  esac
+done
+
+# systemd resolves a bare name to the .service unit, so accept both spellings.
+case "$unit" in
+  kanpachid|kanpachid.service)
+    case "$verb" in
+      is-active)  echo active;  exit 0 ;;
+      is-enabled) echo enabled; exit 0 ;;
+      *)          echo unknown; exit 3 ;;
+    esac
+    ;;
+  *)
+    # systemd's own exit status for a unit that is not running.
+    case "$verb" in
+      is-active)  echo inactive; exit 3 ;;
+      is-enabled) echo disabled; exit 1 ;;
+      *)          echo unknown;  exit 3 ;;
+    esac
+    ;;
 esac
