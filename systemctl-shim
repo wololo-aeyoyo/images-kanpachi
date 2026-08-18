@@ -1,0 +1,10 @@
+#!/bin/sh
+# kanpachid runs as a container process, not a unit. The CLI preflight shells
+# out to `systemctl is-active kanpachid` to decide whether the daemon is up
+# (daemon/cmd/kanpachi/doctor_linux.go), so answer on systemd's behalf.
+# `kanpachi doctor`'s "the service" check reads as healthy off the back of this.
+case "${1:-}" in
+  is-active)  echo active;  exit 0 ;;
+  is-enabled) echo enabled; exit 0 ;;
+  *)          echo unknown; exit 3 ;;
+esac

@@ -45,4 +45,5 @@ this repo.
 
 ## Status
 
-The `Dockerfile` is not written yet — the build will fail until it exists.
+The repository now contains the sidecar image build definition consumed by the
+release workflow.
