@@ -52,7 +52,7 @@ DAEMON=$!
 shutdown() {
   log "stopping; the room stays saved so it reopens with the same code"
   for pid in "${RELAY_PIDS[@]}"; do
-    kill -TERM "$pid" 2>/dev/null || true
+    kill -TERM -- "-$pid" 2>/dev/null || true
   done
   kill -TERM "$DAEMON" 2>/dev/null || true
 }
@@ -156,13 +156,21 @@ kanpachi link | tee "$SHARED_DIR/invite-link.txt"
 # ,fork gives each source address its own forwarding session.
 for PORT in $GAME_PORTS; do
   log "relaying udp/$PORT from $ROOM_IP to $POD_IP"
-  socat "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
-        "UDP4-SENDTO:$POD_IP:$PORT" &
+  setsid socat "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
+               "UDP4-SENDTO:$POD_IP:$PORT" &
   RELAY_PIDS+=("$!")
 done
 
 # The trap interrupts this wait, so wait again for the daemon to actually finish
 # its shutdown rather than exiting out from under it.
-wait "$DAEMON" || true
-while kill -0 "$DAEMON" 2>/dev/null; do sleep 1; done
+wait "$DAEMON" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  kill -0 "$DAEMON" 2>/dev/null || break
+  sleep 1
+done
+if kill -0 "$DAEMON" 2>/dev/null; then
+  log "the daemon did not stop within 30s; killing it"
+  kill -KILL "$DAEMON" 2>/dev/null || true
+  wait "$DAEMON" 2>/dev/null || true
+fi
 log "the daemon is down"
