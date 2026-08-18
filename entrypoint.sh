@@ -34,6 +34,14 @@ SOCK="$RUN_DIR/api.sock"
 install -d -m 0700 "$RUN_DIR"
 install -d -m 0700 "$STATE_DIR"
 
+# The run directory is an emptyDir, which is cleared when the POD is replaced
+# but not when this container restarts on its own. A socket left behind by the
+# previous run therefore outlives the crash that created it, and since the
+# readiness probe below only gets to run once the daemon is up, a stale inode
+# would let every command fire at a socket nothing is accepting on. Unlink it
+# while we know the daemon has not started yet.
+rm -f "$SOCK"
+
 # --console is the only mode that runs in the foreground on Linux: the daemon
 # decides systemd started it purely from NOTIFY_SOCKET being set, and without
 # that variable the service path bails out. Console mode defaults its socket to
@@ -58,11 +66,28 @@ shutdown() {
 }
 trap shutdown TERM INT
 
+# bind() and listen() are not the same instant: the path shows up as a socket
+# before anything accepts on it, so `test -S` alone returns true while a connect
+# still gets ECONNREFUSED. Probe the transport instead. socat is used rather
+# than a kanpachi subcommand because every subcommand needs a seed the daemon
+# has not been given yet, which would make "not ready" and "not seeded"
+# indistinguishable; connecting and sending EOF asks only the question we want.
+ready=0
 for _ in $(seq 1 60); do
-  [ -S "$SOCK" ] && break
+  if [ -S "$SOCK" ] && socat -u OPEN:/dev/null "UNIX-CONNECT:$SOCK" 2>/dev/null; then
+    ready=1
+    break
+  fi
+  # A daemon that died leaves no socket to wait for, so say so now instead of
+  # spending the full minute on it.
+  if ! kill -0 "$DAEMON" 2>/dev/null; then
+    log "the daemon exited before its socket accepted connections"
+    wait "$DAEMON" 2>/dev/null || true
+    exit 1
+  fi
   sleep 1
 done
-[ -S "$SOCK" ] || { log "the daemon never opened its socket"; exit 1; }
+[ "$ready" = 1 ] || { log "the daemon never accepted on $SOCK"; exit 1; }
 
 kanpachi seed "$KANPACHI_SEED"
 
