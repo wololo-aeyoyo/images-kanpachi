@@ -153,7 +153,7 @@ kanpachi link | tee "$SHARED_DIR/invite-link.txt"
 # Binding the room IP means Kanpachi sees a listener exactly where it expects
 # the game to be, its accepts match unmodified, and Zomboid stays on the pod IP
 # so the tailscale Service, RCON and ClusterIP paths are untouched.
-# ,fork gives each source address its own forwarding session.
+# `fork` gives each source address its own forwarding session.
 for PORT in $GAME_PORTS; do
   log "relaying udp/$PORT from $ROOM_IP to $POD_IP"
   setsid socat "UDP4-RECVFROM:$PORT,bind=$ROOM_IP,fork" \
@@ -173,4 +173,5 @@ if kill -0 "$DAEMON" 2>/dev/null; then
   kill -KILL "$DAEMON" 2>/dev/null || true
   wait "$DAEMON" 2>/dev/null || true
 fi
+wait "${RELAY_PIDS[@]}" 2>/dev/null || true
 log "the daemon is down"
