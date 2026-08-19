@@ -7,7 +7,7 @@
 # alone, which is exactly what we want.
 FROM ubuntu:24.04
 
-ARG KANPACHI_VERSION=v0.6.0
+ARG KANPACHI_VERSION=v0.6.3
 ARG KANPACHI_REPO=https://github.com/alvarogabrielgomez/kanpachi
 ENV DEBIAN_FRONTEND=noninteractive
 
